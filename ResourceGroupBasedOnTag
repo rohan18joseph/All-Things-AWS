@@ -1,0 +1,38 @@
+#importing the libraries
+import json
+import boto3
+
+#initializing the clients
+ssm=boto3.client('ssm')
+ec2=boto3.client('ec2')
+resource_groups=boto3.client('resource-groups')
+
+#initalizing the lists
+instance_ids=[]
+platform_ids=[]
+plat_final=[]
+
+count=0  #variable to iterate in loop and to add unique platform names
+ssmop = ssm.describe_instance_information() #provides output in dictionary format
+instance_list=ssmop['InstanceInformationList'] #filtering to only contain InstanceInformationList
+for i in instance_list: # i here will be a single dictionary object, basically if there are n managed instances, then there will be n iterations
+    instance_ids.append(i['InstanceId']) #adding instance id to list
+    platform_ids.append(i['PlatformName']) #adding platform name to list
+    ec2.create_tags(Resources=[i['InstanceId']],Tags=[{'Key':'Patch Group','Value':i['PlatformName']}]) #creating tag
+    if platform_ids[count] not in plat_final:
+        #adding platform name only if platform name isn't already present in plat_final
+        plat_final.append(platform_ids[count])
+    count+=1
+
+for plat_name in plat_final:
+    parse_dic={"ResourceTypeFilters":["AWS::EC2::Instance"],"TagFilters":[{"Key":"Patch Group", "Values":[plat_name]}]}
+    parse_json=json.dumps(parse_dic) #converted to json
+    #creating a resource group. in 'Name', replacing " " with '_'. Query value is taken from parse_json.
+    response = resource_groups.create_group(
+        Name=plat_name.replace(" ","_"),
+        ResourceQuery={
+            'Type': 'TAG_FILTERS_1_0',
+            'Query': parse_json
+        }
+    )
+#print('If you see this, then looks like everything went well! :)')
