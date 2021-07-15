@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Sample Cognito template
+Parameters:
+  PoolName:
+    Type: String
+    Description: Name of the Cognito user pool.
+Resources:
+  Test:
+    Properties:
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: 'true'
+        UnusedAccountValidityDays: 90
+      AutoVerifiedAttributes:
+        - email
+      UserPoolName: !Sub '${PoolName}'
+      UsernameAttributes:
+        - email
+    Type: 'AWS::Cognito::UserPool'
+  CustomResource:
+    Type: 'Custom::CustomResource'
+    Properties:
+      ServiceToken: !GetAtt 
+        - LambdaFunction
+        - Arn
+      UserPool: !Ref Test
+  LambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: !Sub >
+          import json
+          
+          import urllib.request
+          
+          import boto3
+
+          import cfnresponse
+          
+          def lambda_handler(event, context):
+            if event['RequestType'] == 'Create':
+              cognito=boto3.client('cognito-idp')
+              test_user_pool = event['ResourceProperties']['UserPool']
+              mfa_setup = cognito.set_user_pool_mfa_config(
+              UserPoolId= test_user_pool,
+              SoftwareTokenMfaConfiguration={
+                  'Enabled': True
+              },
+              MfaConfiguration='OPTIONAL')
+              responseData = {}
+              responseData['CustStatus'] = 'Success'
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+            elif event['RequestType'] == 'Delete':
+              responseData = {}
+              responseData['CustStatus'] = 'Suceess'            
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+      Handler: index.lambda_handler
+      Runtime: python3.7
+      Timeout: 900
+      Role: !GetAtt 
+        - LambdaExecutionRole
+        - Arn
+  LambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: lambda-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: VisualEditor0
+                Effect: Allow
+                Action:
+                  - 'cognito-idp:SetUserPoolMfaConfig'
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: '*'
